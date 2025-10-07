@@ -1,4 +1,4 @@
-package com.syne.jdbc.gateway.driver.redis;
+package com.syne.jdbc.redis;
 
 import java.sql.*;
 import java.util.ArrayList;
