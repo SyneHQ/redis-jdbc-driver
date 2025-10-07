@@ -1,4 +1,4 @@
-package com.syne.jdbc.redis;
+package com.synehq.jdbc.redis;
 
 import java.util.ArrayList;
 import java.util.List;

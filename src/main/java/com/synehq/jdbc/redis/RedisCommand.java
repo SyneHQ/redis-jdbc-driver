@@ -1,4 +1,4 @@
-package com.syne.jdbc.redis;
+package com.synehq.jdbc.redis;
 
 /**
  * Redis command representation.

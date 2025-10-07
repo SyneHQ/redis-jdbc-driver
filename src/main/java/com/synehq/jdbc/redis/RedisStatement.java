@@ -1,4 +1,4 @@
-package com.syne.jdbc.redis;
+package com.synehq.jdbc.redis;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.exceptions.JedisException;
