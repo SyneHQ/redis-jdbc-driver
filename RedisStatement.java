@@ -513,12 +513,6 @@ public class RedisStatement implements Statement {
 					}
 					break;
             }
-            
-            if (result instanceof byte[]) {
-                System.out.println("Result: " + new String((byte[]) result));
-            } else {
-                System.out.println("Result: " + result);
-            }
 
             return new RedisResultSet(this, command, result, resultSetCounter.incrementAndGet());
             

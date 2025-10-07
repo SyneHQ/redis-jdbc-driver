@@ -509,12 +509,21 @@ public class RedisConnection implements Connection {
             throw new SQLException("Redis connection not initialized");
         }
         Jedis jedis = jedisPool.getResource();
-        // If a username is provided, perform ACL AUTH explicitly (pool constructor cannot pass username)
+        
+        // Handle authentication if credentials are provided
         if (effectiveUsername != null && effectivePassword != null) {
+            // ACL-style authentication (Redis 6.0+)
             try {
                 jedis.auth(effectiveUsername, effectivePassword);
             } catch (Exception ignored) {
                 // If already authenticated or server doesn't support ACL-style auth, ignore
+            }
+        } else if (effectivePassword != null) {
+            // Traditional Redis authentication (password only)
+            try {
+                jedis.auth(effectivePassword);
+            } catch (Exception ignored) {
+                // If already authenticated or server doesn't require auth, ignore
             }
         }
         return jedis;
