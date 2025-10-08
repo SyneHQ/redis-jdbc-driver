@@ -46,7 +46,21 @@
         <maven.surefire.plugin.version>3.0.0</maven.surefire.plugin.version>
         <maven.source.plugin.version>3.2.1</maven.source.plugin.version>
         <maven.javadoc.plugin.version>3.5.0</maven.javadoc.plugin.version>
+        <maven.versions.plugin.version>2.16.2</maven.versions.plugin.version>
     </properties>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>central</id>
+            <name>Central Repository OSSRH</name>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>central</id>
+            <name>Central Repository OSSRH</name>
+            <url>https://s01.oss.sonatype.org/content/repositories/releases</url>
+        </repository>
+    </distributionManagement>
 
     <dependencies>
         <!-- Jedis Redis client -->
@@ -128,11 +142,24 @@
                 </executions>
             </plugin>
 
+            <!-- Versions plugin for version management -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>${maven.versions.plugin.version}</version>
+            </plugin>
+
             <!-- GPG plugin for signing artifacts -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
                 <version>3.1.0</version>
+                <configuration>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
                 <executions>
                     <execution>
                         <id>sign-artifacts</id>
