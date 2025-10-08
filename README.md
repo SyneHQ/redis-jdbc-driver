@@ -35,7 +35,7 @@ Add the following dependency to your `pom.xml`:
 <dependency>
     <groupId>com.synehq.jdbc</groupId>
     <artifactId>redis-jdbc-driver</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
@@ -44,7 +44,7 @@ Add the following dependency to your `pom.xml`:
 Add the following to your `build.gradle`:
 
 ```gradle
-implementation 'com.synehq.jdbc:redis-jdbc-driver:1.0.0'
+implementation 'com.synehq.jdbc:redis-jdbc-driver:1.0.1'
 ```
 
 ## Usage
