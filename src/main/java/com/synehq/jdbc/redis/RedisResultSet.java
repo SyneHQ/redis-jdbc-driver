@@ -69,14 +69,103 @@ public class RedisResultSet implements ResultSet {
             row.put("count", result);
             rows.add(row);
         } else if (result instanceof List) {
-            // List result (e.g., KEYS, LRANGE, SMEMBERS)
+            // List result (e.g., KEYS, LRANGE, SMEMBERS, XRANGE)
             List<?> list = (List<?>) result;
             if (list.isEmpty()) {
+                // Try to return a sensible schema for streams as well
                 columnNames.add("value");
                 columnTypes.add(Types.VARCHAR);
                 Map<String, Object> row = new HashMap<>();
                 row.put("value", null);
                 rows.add(row);
+            } else if (list.get(0) instanceof redis.clients.jedis.resps.StreamEntry) {
+                // XRANGE returns a list of StreamEntry; expand all the fields as separate columns
+                Set<String> allFieldNames = new LinkedHashSet<>();
+                
+                // First pass: collect all unique field names across all stream entries
+                for (Object item : list) {
+                    if (item instanceof redis.clients.jedis.resps.StreamEntry) {
+                        redis.clients.jedis.resps.StreamEntry se = (redis.clients.jedis.resps.StreamEntry) item;
+                        try {
+                            java.util.Map<String, String> fields = se.getFields();
+                            if (fields != null) {
+                                allFieldNames.addAll(fields.keySet());
+                            }
+                        } catch (Exception e) {
+                            // Ignore errors during field collection
+                        }
+                    }
+                }
+                
+                // Set up columns: id first, then all field names as separate columns
+                columnNames.add("id");
+                columnTypes.add(Types.VARCHAR);
+                
+                for (String fieldName : allFieldNames) {
+                    columnNames.add(fieldName != null && !fieldName.trim().isEmpty() ? fieldName : "unnamed_field");
+                    columnTypes.add(Types.VARCHAR);
+                }
+                
+                // If no fields found, add a default column
+                if (allFieldNames.isEmpty()) {
+                    columnNames.add("value");
+                    columnTypes.add(Types.VARCHAR);
+                }
+                
+                // Second pass: create rows with values for each column
+                for (Object item : list) {
+                    if (!(item instanceof redis.clients.jedis.resps.StreamEntry)) {
+                        // Handle unexpected item type gracefully
+                        Map<String, Object> row = new HashMap<>();
+                        row.put("id", null);
+                        for (String fieldName : allFieldNames) {
+                            String colName = fieldName != null && !fieldName.trim().isEmpty() ? fieldName : "unnamed_field";
+                            row.put(colName, "Unexpected item type: " + (item != null ? item.getClass().getSimpleName() : "null"));
+                        }
+                        if (allFieldNames.isEmpty()) {
+                            row.put("value", "Unexpected item type: " + (item != null ? item.getClass().getSimpleName() : "null"));
+                        }
+                        rows.add(row);
+                        continue;
+                    }
+                    
+                    redis.clients.jedis.resps.StreamEntry se = (redis.clients.jedis.resps.StreamEntry) item;
+                    Map<String, Object> row = new HashMap<>();
+                    
+                    // Set the ID
+                    String idStr = null;
+                    try {
+                        if (se.getID() != null) {
+                            idStr = se.getID().toString();
+                        }
+                    } catch (Exception e) {
+                        idStr = "invalid_id";
+                    }
+                    row.put("id", idStr);
+                    
+                    // Get the fields for this entry
+                    java.util.Map<String, String> fields = null;
+                    try {
+                        fields = se.getFields();
+                    } catch (Exception e) {
+                        fields = new HashMap<>();
+                    }
+                    
+                    // Set values for each column
+                    for (String fieldName : allFieldNames) {
+                        String colName = fieldName != null && !fieldName.trim().isEmpty() ? fieldName : "unnamed_field";
+                        String value = (fields != null) ? fields.get(fieldName) : null;
+                        row.put(colName, value);
+                    }
+                    
+                    // If no fields found, add a null value
+                    if (allFieldNames.isEmpty()) {
+                        row.put("value", null);
+                    }
+                    
+                    rows.add(row);
+                }
+
             } else {
                 columnNames.add("value");
                 columnTypes.add(Types.VARCHAR);

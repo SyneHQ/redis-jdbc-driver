@@ -504,6 +504,24 @@ public class RedisStatement implements Statement {
                     System.arraycopy(args, 1, zremArgs, 0, zremArgs.length);
                     result = jedis.zrem(args[0], zremArgs);
                     break;
+				case "XRANGE":
+					// XRANGE key start end [COUNT count]
+					if (args.length == 3) {
+						result = jedis.xrange(args[0], args[1], args[2]);
+					} else if (args.length == 5 && "COUNT".equalsIgnoreCase(args[3])) {
+						result = jedis.xrange(args[0], args[1], args[2], Integer.parseInt(args[4]));
+					} else {
+						throw new IllegalArgumentException("XRANGE requires: key start end [COUNT count]");
+					}
+					break;
+				case "XINFO":
+					// XINFO stream key
+					if (args.length == 2 && "STREAM".equalsIgnoreCase(args[0])) {
+						result = jedis.xinfoStream(args[1]);
+					} else {
+						throw new IllegalArgumentException("XINFO requires: STREAM key");
+					}
+					break;
 				default:
 					// For unknown commands, first try built-in enum; if absent (e.g., JSON.GET), send as raw command
 					try {
