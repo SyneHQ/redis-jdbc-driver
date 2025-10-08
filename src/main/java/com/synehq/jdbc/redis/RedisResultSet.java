@@ -34,6 +34,77 @@ public class RedisResultSet implements ResultSet {
         initializeResultData();
     }
 
+    /**
+     * Convert various Redis data types to readable strings, handling nested structures
+     */
+    private String convertToString(Object obj) {
+        if (obj == null) {
+            return null;
+        }
+        
+        if (obj instanceof byte[]) {
+            return new String((byte[]) obj, StandardCharsets.UTF_8);
+        } else if (obj instanceof String) {
+            return (String) obj;
+        } else if (obj instanceof Number) {
+            return obj.toString();
+        } else if (obj instanceof java.util.List) {
+            java.util.List<?> list = (java.util.List<?>) obj;
+            if (list.isEmpty()) {
+                return "[]";
+            }
+            
+            // Handle special case for stream entries in XINFO
+            if (list.get(0) instanceof redis.clients.jedis.resps.StreamEntry) {
+                StringBuilder sb = new StringBuilder("[");
+                for (int i = 0; i < list.size(); i++) {
+                    if (i > 0) sb.append(", ");
+                    redis.clients.jedis.resps.StreamEntry entry = (redis.clients.jedis.resps.StreamEntry) list.get(i);
+                    sb.append(entry.getID().toString()).append(":");
+                    java.util.Map<String, String> fields = entry.getFields();
+                    if (fields != null && !fields.isEmpty()) {
+                        sb.append("{");
+                        boolean first = true;
+                        for (java.util.Map.Entry<String, String> field : fields.entrySet()) {
+                            if (!first) sb.append(", ");
+                            sb.append(field.getKey()).append("=").append(field.getValue());
+                            first = false;
+                        }
+                        sb.append("}");
+                    }
+                }
+                sb.append("]");
+                return sb.toString();
+            }
+            
+            // Handle regular lists
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(convertToString(list.get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
+        } else if (obj instanceof java.util.Map) {
+            java.util.Map<?, ?> map = (java.util.Map<?, ?>) obj;
+            if (map.isEmpty()) {
+                return "{}";
+            }
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            for (java.util.Map.Entry<?, ?> entry : map.entrySet()) {
+                if (!first) sb.append(", ");
+                sb.append(convertToString(entry.getKey())).append(":").append(convertToString(entry.getValue()));
+                first = false;
+            }
+            sb.append("}");
+            return sb.toString();
+        } else {
+            // For other types, try to get a meaningful string representation
+            return obj.toString();
+        }
+    }
+
     private void initializeResultData() {
         this.rows = new ArrayList<>();
         this.columnNames = new ArrayList<>();
@@ -59,7 +130,7 @@ public class RedisResultSet implements ResultSet {
             columnNames.add("value");
             columnTypes.add(Types.VARCHAR);
             Map<String, Object> row = new HashMap<>();
-            row.put("value", new String((byte[]) result, StandardCharsets.UTF_8));
+            row.put("value", convertToString(result));
             rows.add(row);
         } else if (result instanceof Long) {
             // Numeric result
@@ -171,11 +242,7 @@ public class RedisResultSet implements ResultSet {
                 columnTypes.add(Types.VARCHAR);
                 for (Object item : list) {
                     Map<String, Object> row = new HashMap<>();
-                    if (item instanceof byte[]) {
-                        row.put("value", new String((byte[]) item, StandardCharsets.UTF_8));
-                    } else {
-                        row.put("value", item != null ? item.toString() : null);
-                    }
+                    row.put("value", convertToString(item));
                     rows.add(row);
                 }
             }
@@ -200,16 +267,13 @@ public class RedisResultSet implements ResultSet {
                     Map<String, Object> row = new HashMap<>();
                     Object k = entry.getKey();
                     Object v = entry.getValue();
-                    if (k instanceof byte[]) {
-                        row.put("field", new String((byte[]) k, StandardCharsets.UTF_8));
-                    } else {
-                        row.put("field", k != null ? k.toString() : null);
-                    }
-                    if (v instanceof byte[]) {
-                        row.put("value", new String((byte[]) v, StandardCharsets.UTF_8));
-                    } else {
-                        row.put("value", v != null ? v.toString() : null);
-                    }
+                    
+                    // Convert key to string
+                    row.put("field", convertToString(k));
+                    
+                    // Convert value to string, handling complex nested structures
+                    row.put("value", convertToString(v));
+                    
                     rows.add(row);
                 }
             }
@@ -220,11 +284,7 @@ public class RedisResultSet implements ResultSet {
             columnTypes.add(Types.VARCHAR);
             for (Object item : set) {
                 Map<String, Object> row = new HashMap<>();
-                if (item instanceof byte[]) {
-                    row.put("value", new String((byte[]) item, StandardCharsets.UTF_8));
-                } else {
-                    row.put("value", item != null ? item.toString() : null);
-                }
+                row.put("value", convertToString(item));
                 rows.add(row);
             }
         } else {
@@ -232,11 +292,7 @@ public class RedisResultSet implements ResultSet {
             columnNames.add("result");
             columnTypes.add(Types.VARCHAR);
             Map<String, Object> row = new HashMap<>();
-            if (result instanceof byte[]) {
-                row.put("result", new String((byte[]) result, StandardCharsets.UTF_8));
-            } else {
-                row.put("result", result.toString());
-            }
+            row.put("result", convertToString(result));
             rows.add(row);
         }
     }
