@@ -84,17 +84,24 @@ jobs:
         mvn versions:set -DnewVersion=$NEW_VERSION
         mvn versions:commit
         
+    - name: Import GPG key
+      run: |
+        echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+        gpg --list-secret-keys --keyid-format LONG
+        # Configure GPG for CI environment
+        echo "use-agent" >> ~/.gnupg/gpg.conf
+        echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+        echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+        gpgconf --kill gpg-agent
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        
     - name: Build and sign artifacts
       run: |
         mvn clean package verify
       env:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        
-    - name: Import GPG key
-      run: |
-        echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-        gpg --list-secret-keys --keyid-format LONG
         
     - name: Publish to Maven Central
       run: |
