@@ -4,6 +4,9 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisCluster;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.HostAndPort;
+import javax.net.ssl.HttpsURLConnection;
 
 import java.sql.*;
 import java.util.Map;
@@ -36,7 +39,8 @@ public class RedisConnection implements Connection {
 
     public RedisConnection(String url, Properties info) throws SQLException {
         this.url = url;
-        this.properties = info != null ? new Properties(info) : new Properties();
+        this.properties = new Properties();
+        if (info != null) this.properties.putAll(info);
         this.connectionInfo = parseConnectionUrl(url);
         this.isCluster = url.startsWith("jdbc:redis:cluster://");
         
@@ -61,7 +65,7 @@ public class RedisConnection implements Connection {
                 initializeStandaloneConnection();
             }
         } catch (Exception e) {
-            throw new SQLException("Failed to initialize Redis connection: " + e.getMessage(), e);
+            throw new SQLException("Failed to initialize Redis connection");
         }
     }
 
@@ -69,107 +73,54 @@ public class RedisConnection implements Connection {
         JedisPoolConfig poolConfig = new JedisPoolConfig();
         poolConfig.setMaxTotal(10);
         poolConfig.setMaxIdle(5);
-        poolConfig.setMinIdle(1);
-        
-        int timeout = Integer.parseInt(properties.getProperty("connectionTimeout", "2000"));
-        int socketTimeout = Integer.parseInt(properties.getProperty("socketTimeout", "2000"));
-        int blockingSocketTimeout = Integer.parseInt(properties.getProperty("blockingSocketTimeout", "0"));
-        
-        String password = effectivePassword;
-        int database = connectionInfo.getDatabase();
-        
-        jedisPool = new JedisPool(poolConfig, 
-            connectionInfo.getHost(), 
-            connectionInfo.getPort(), 
-            timeout, 
-            password, 
-            database, 
-            connectionInfo.getClientName());
+        poolConfig.setMinIdle(0);
+        if (!Boolean.parseBoolean(properties.getProperty("verifyServerCertificate", "true"))) {
+            throw new IllegalArgumentException("Server certificate verification is required");
+        }
+        DefaultJedisClientConfig config = DefaultJedisClientConfig.builder()
+            .connectionTimeoutMillis(boundedTimeout("connectionTimeout", 2000))
+            .socketTimeoutMillis(boundedTimeout("socketTimeout", 2000))
+            .blockingSocketTimeoutMillis(boundedTimeout("blockingSocketTimeout", 30000))
+            .user(effectiveUsername).password(effectivePassword)
+            .database(isCluster ? 0 : connectionInfo.getDatabase())
+            .clientName(connectionInfo.getClientName())
+            .ssl(Boolean.parseBoolean(properties.getProperty("ssl", "false")))
+            .hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())
+            .build();
+        jedisPool = new JedisPool(poolConfig, new HostAndPort(connectionInfo.getHost(), connectionInfo.getPort()), config);
+    }
+
+    private int boundedTimeout(String name, int fallback) {
+        int value = Integer.parseInt(properties.getProperty(name, String.valueOf(fallback)));
+        if (value < 1 || value > 60000) throw new IllegalArgumentException("Invalid Redis timeout");
+        return value;
     }
 
     private void initializeClusterConnection() {
-        // For cluster, we'll use a simple approach with the first host
-        // In a real implementation, you'd parse all cluster nodes
-        JedisPoolConfig poolConfig = new JedisPoolConfig();
-        poolConfig.setMaxTotal(10);
-        poolConfig.setMaxIdle(5);
-        poolConfig.setMinIdle(1);
-        
-        int timeout = Integer.parseInt(properties.getProperty("connectionTimeout", "2000"));
-        int socketTimeout = Integer.parseInt(properties.getProperty("socketTimeout", "2000"));
-        
-        String password = effectivePassword;
-        
-        jedisPool = new JedisPool(poolConfig, 
-            connectionInfo.getHost(), 
-            connectionInfo.getPort(), 
-            timeout, 
-            password, 
-            0, // Cluster doesn't use database numbers
-            connectionInfo.getClientName());
+        initializeStandaloneConnection();
     }
 
     private RedisConnectionInfo parseConnectionUrl(String url) throws SQLException {
         try {
-            // Remove jdbc:redis:// or jdbc:redis:cluster:// prefix
-            String cleanUrl = url.replaceFirst("jdbc:redis://", "").replaceFirst("jdbc:redis:cluster://", "");
-            
-            // Parse authentication
-            String username = null;
-            String password = null;
-            if (cleanUrl.contains("@")) {
-                String[] parts = cleanUrl.split("@", 2);
-                String authPart = parts[0];
-                cleanUrl = parts[1];
-                
-                if (authPart.contains(":")) {
-                    String[] authParts = authPart.split(":", 2);
-                    username = authParts[0];
-                    password = authParts[1];
-                } else {
-                    password = authPart;
-                }
+            if (url == null || !(url.startsWith("jdbc:redis://") || url.startsWith("jdbc:redis:cluster://"))) {
+                throw new IllegalArgumentException();
             }
-            
-            // Parse host and port
-            String host = "localhost";
-            int port = 6379;
-            
-            if (cleanUrl.contains("/")) {
-                String[] parts = cleanUrl.split("/", 2);
-                String hostPort = parts[0];
-                
-                if (hostPort.contains(":")) {
-                    String[] hostPortParts = hostPort.split(":", 2);
-                    host = hostPortParts[0];
-                    port = Integer.parseInt(hostPortParts[1]);
-                } else {
-                    host = hostPort;
-                }
+            String prefix = url.startsWith("jdbc:redis:cluster://") ? "jdbc:redis:cluster://" : "jdbc:redis://";
+            java.net.URI uri = new java.net.URI("redis://" + url.substring(prefix.length()));
+            if (uri.getHost() == null || uri.getFragment() != null || uri.getQuery() != null) throw new IllegalArgumentException();
+            int port = uri.getPort() < 0 ? 6379 : uri.getPort();
+            if (port < 1 || port > 65535) throw new IllegalArgumentException();
+            String path = uri.getPath();
+            int database = path == null || path.isEmpty() || path.equals("/") ? 0 : Integer.parseInt(path.substring(1));
+            if (database < 0 || database > 65535) throw new IllegalArgumentException();
+            String username = null, password = null;
+            if (uri.getUserInfo() != null) {
+                String[] credentials = uri.getUserInfo().split(":", 2);
+                if (credentials.length == 2) { username = credentials[0]; password = credentials[1]; }
+                else password = credentials[0];
             }
-            
-            // Parse database number
-            int database = 0;
-            if (cleanUrl.contains("/")) {
-                String[] parts = cleanUrl.split("/", 2);
-                if (parts.length > 1) {
-                    String dbPart = parts[1].split("\\?")[0]; // Remove query parameters
-                    try {
-                        database = Integer.parseInt(dbPart);
-                    } catch (NumberFormatException e) {
-                        database = 0;
-                    }
-                }
-            }
-            
-            // Parse query parameters
-            String clientName = properties.getProperty("clientName");
-            
-            return new RedisConnectionInfo(host, port, database, username, password, clientName);
-            
-        } catch (Exception e) {
-            throw new SQLException("Invalid Redis URL format: " + url, e);
-        }
+            return new RedisConnectionInfo(uri.getHost(), port, database, username, password, properties.getProperty("clientName"));
+        } catch (Exception error) { throw new SQLException("Invalid Redis URL format"); }
     }
 
     @Override
@@ -508,25 +459,11 @@ public class RedisConnection implements Connection {
         if (jedisPool == null) {
             throw new SQLException("Redis connection not initialized");
         }
-        Jedis jedis = jedisPool.getResource();
-        
-        // Handle authentication if credentials are provided
-        if (effectiveUsername != null && effectivePassword != null) {
-            // ACL-style authentication (Redis 6.0+)
-            try {
-                jedis.auth(effectiveUsername, effectivePassword);
-            } catch (Exception ignored) {
-                // If already authenticated or server doesn't support ACL-style auth, ignore
-            }
-        } else if (effectivePassword != null) {
-            // Traditional Redis authentication (password only)
-            try {
-                jedis.auth(effectivePassword);
-            } catch (Exception ignored) {
-                // If already authenticated or server doesn't require auth, ignore
-            }
+        try {
+            return jedisPool.getResource();
+        } catch (Exception error) {
+            throw new SQLException("Redis connection authentication or transport failed");
         }
-        return jedis;
     }
 
     public RedisConnectionInfo getConnectionInfo() {

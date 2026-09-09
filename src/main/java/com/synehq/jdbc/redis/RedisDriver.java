@@ -9,6 +9,7 @@ import java.util.logging.Logger;
  * This driver provides JDBC connectivity to Redis databases.
  */
 public class RedisDriver implements Driver {
+    public static boolean enforcesTlsAndAclAuthentication() { return true; }
     
     private static final String DRIVER_NAME = "Redis JDBC Driver";
     private static final String DRIVER_VERSION = "1.5";

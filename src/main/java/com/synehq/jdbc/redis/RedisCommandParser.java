@@ -2,8 +2,6 @@ package com.synehq.jdbc.redis;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Parser for Redis commands from SQL-like syntax.
@@ -11,8 +9,6 @@ import java.util.regex.Pattern;
  */
 public class RedisCommandParser {
     
-    private static final Pattern QUOTED_STRING = Pattern.compile("\"([^\"]*)\"|'([^']*)'");
-    private static final Pattern UNQUOTED_WORD = Pattern.compile("\\S+");
 
     /**
      * Parse a Redis command from SQL-like syntax.
@@ -42,46 +38,26 @@ public class RedisCommandParser {
     /**
      * Tokenize the input string, handling quoted strings properly.
      */
-    private static List<String> tokens = new ArrayList<>();
-    
     private static List<String> tokenize(String input) {
         List<String> tokens = new ArrayList<>();
-        
-        // First, extract quoted strings
-        Matcher quotedMatcher = QUOTED_STRING.matcher(input);
-        int lastEnd = 0;
-        
-        while (quotedMatcher.find()) {
-            // Add unquoted text before this match
-            String beforeMatch = input.substring(lastEnd, quotedMatcher.start()).trim();
-            if (!beforeMatch.isEmpty()) {
-                addUnquotedTokens(tokens, beforeMatch);
-            }
-            
-            // Add the quoted string (without quotes)
-            String quotedValue = quotedMatcher.group(1);
-            if (quotedValue == null) {
-                quotedValue = quotedMatcher.group(2);
-            }
-            tokens.add(quotedValue);
-            
-            lastEnd = quotedMatcher.end();
+        StringBuilder token = new StringBuilder();
+        char quote = 0;
+        boolean escaped = false, started = false;
+        for (int i = 0; i < input.length(); i++) {
+            char current = input.charAt(i);
+            if (escaped) { token.append(current); escaped = false; started = true; }
+            else if (current == '\\') { escaped = true; started = true; }
+            else if (quote != 0) {
+                if (current == quote) quote = 0;
+                else token.append(current);
+            } else if (current == '\'' || current == '"') { quote = current; started = true; }
+            else if (Character.isWhitespace(current)) {
+                if (started) { tokens.add(token.toString()); token.setLength(0); started = false; }
+            } else { token.append(current); started = true; }
         }
-        
-        // Add remaining unquoted text
-        String remaining = input.substring(lastEnd).trim();
-        if (!remaining.isEmpty()) {
-            addUnquotedTokens(tokens, remaining);
-        }
-        
+        if (quote != 0 || escaped) throw new IllegalArgumentException("Unterminated Redis argument");
+        if (started) tokens.add(token.toString());
         return tokens;
-    }
-    
-    private static void addUnquotedTokens(List<String> tokens, String text) {
-        Matcher matcher = UNQUOTED_WORD.matcher(text);
-        while (matcher.find()) {
-            tokens.add(matcher.group());
-        }
     }
 
 }
