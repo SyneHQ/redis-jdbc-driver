@@ -14,8 +14,8 @@ public class RedisResultSetMetaData implements ResultSetMetaData {
     private final List<Integer> columnTypes;
 
     public RedisResultSetMetaData() {
-        this.columnNames = List.of("result");
-        this.columnTypes = List.of(java.sql.Types.VARCHAR);
+        this.columnNames = java.util.Collections.singletonList("result");
+        this.columnTypes = java.util.Collections.singletonList(java.sql.Types.VARCHAR);
     }
 
     public RedisResultSetMetaData(List<String> columnNames, List<Integer> columnTypes) {

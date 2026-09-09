@@ -324,8 +324,8 @@ public class RedisPreparedStatement extends RedisStatement implements PreparedSt
     }
 
     private void setParameter(int parameterIndex, Object value) throws SQLException {
-        if (parameterIndex < 1) {
-            throw new SQLException("Parameter index must be >= 1");
+        if (parameterIndex < 1 || parameterIndex > 1000) {
+            throw new SQLException("Parameter index must be between 1 and 1000");
         }
         
         // Ensure the parameters list is large enough
@@ -337,29 +337,29 @@ public class RedisPreparedStatement extends RedisStatement implements PreparedSt
     }
 
     private String processParameters(String sql) throws SQLException {
-        String processedSql = sql;
-        
-        for (int i = 0; i < parameters.size(); i++) {
-            Object param = parameters.get(i);
-            String placeholder = "?";
-            String replacement;
-            
-            if (param == null) {
-                replacement = "null";
-            } else if (param instanceof String) {
-                replacement = "\"" + param.toString().replace("\"", "\\\"") + "\"";
-            } else {
-                replacement = param.toString();
-            }
-            
-            // Replace the first occurrence of ? with the parameter value
-            int index = processedSql.indexOf(placeholder);
-            if (index != -1) {
-                processedSql = processedSql.substring(0, index) + replacement + processedSql.substring(index + 1);
-            }
+        StringBuilder result = new StringBuilder();
+        int parameter = 0;
+        char quote = 0;
+        boolean escaped = false;
+        for (int i = 0; i < sql.length(); i++) {
+            char current = sql.charAt(i);
+            if (escaped) { result.append(current); escaped = false; continue; }
+            if (current == '\\') { result.append(current); escaped = true; continue; }
+            if (quote != 0) {
+                result.append(current);
+                if (current == quote) quote = 0;
+            } else if (current == '\'' || current == '"') { result.append(current); quote = current; }
+            else if (current == '?') {
+                if (parameter >= parameters.size()) throw new SQLException("Missing Redis parameter");
+                Object value = parameters.get(parameter++);
+                String text = value == null ? "null" : value instanceof byte[] ?
+                    new String((byte[]) value, java.nio.charset.StandardCharsets.UTF_8) : value.toString();
+                result.append('"').append(text.replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
+            } else result.append(current);
         }
-        
-        return processedSql;
+        if (parameter != parameters.size()) throw new SQLException("Unexpected Redis parameter");
+        if (quote != 0 || escaped) throw new SQLException("Unterminated Redis argument");
+        return result.toString();
     }
 
     private void checkClosed() throws SQLException {
